@@ -1,5 +1,11 @@
 from pathlib import Path
 
+WEBDRIVER_WAIT_TIMEOUT: dict = {
+    'short': 5,
+    'medium': 30,
+    'long': 60
+}
+
 # Maximum number of login attempts before closing the browser.
 MAX_LOGIN_ATTEMPTS: int = 3
 
