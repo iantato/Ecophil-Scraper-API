@@ -11,3 +11,6 @@ wheels/
 
 # Visual Studio Code
 .vscode/
+
+# User-specific files
+data/
