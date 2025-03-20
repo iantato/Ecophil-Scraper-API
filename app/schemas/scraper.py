@@ -1,13 +1,13 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr, PastDate
 
 class Account(BaseModel):
     username: str
-    password: bytes
+    password: SecretStr
 
 class Dates(BaseModel):
-    start_date: datetime = None
-    end_date: datetime = None
+    start_date: PastDate
+    end_date: PastDate
 
 class Row(BaseModel):
     reference_number: str
