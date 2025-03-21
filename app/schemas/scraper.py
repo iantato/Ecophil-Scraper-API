@@ -1,5 +1,5 @@
-from datetime import datetime
-from pydantic import BaseModel, SecretStr, PastDate
+from datetime import datetime, timedelta
+from pydantic import BaseModel, SecretStr, PastDate, ValidationInfo, field_validator
 
 class Account(BaseModel):
     username: str
@@ -8,6 +8,14 @@ class Account(BaseModel):
 class Dates(BaseModel):
     start_date: PastDate
     end_date: PastDate
+
+    @field_validator('end_date')
+    @classmethod
+    def validate_date_range(cls, end_date: PastDate, values: ValidationInfo) -> datetime:
+        start_date = values.data.get('start_date')
+        if (start_date and end_date) and (end_date - start_date) > timedelta(weeks=1):
+            raise ValueError('The date range must not exceed 1 week.')
+        return end_date
 
 class Row(BaseModel):
     reference_number: str
