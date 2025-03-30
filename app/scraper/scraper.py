@@ -162,7 +162,8 @@ class Scraper:
 
     def move_ati(self, filename: str, to_directory: str) -> None:
         """
-            Moves the file to the appropriate directory.
+            Moves the Asian Terminal Inc. (ATI) data file to the
+            specific documents' directory.
 
             Parameters:
                 filename (str): the name of the file.
@@ -181,7 +182,7 @@ class Scraper:
 
     def download_ati(self, account: Account, dates: Dates) -> None:
         """
-            Downloads the ATI data from the VBS website.
+            Downloads the Asian Terminal Inc. (ATI) data from the VBS website.
             The data is downloaded in CSV format and saved in the
             specified directory.
 
@@ -197,14 +198,13 @@ class Scraper:
             try:
                 # Login to the VBS website.
                 driver.get(url)
-                logger.info(f'Logging in to {Color.colorize("Intercommerce", Color.BOLD)} account and downloading {"ATI", Color.BOLD} data.')
+                logger.info(f'Logging in to {Color.colorize("Intercommerce", Color.BOLD)} account and downloading {Color.colorize("ATI", Color.BOLD)} data.')
                 # Wait for the page to load and then login.
                 wait.until(EC.all_of(
                         EC.visibility_of_element_located((By.ID, 'USERNAME')),
                         EC.visibility_of_element_located((By.ID, 'PASSWORD'))
                     )
                 )
-
                 driver.find_element(By.ID, 'USERNAME').send_keys(account.username)
                 driver.find_element(By.ID, 'PASSWORD').send_keys(account.password.get_secret_value())
                 driver.find_element(By.ID, 'form1').submit()
@@ -248,6 +248,100 @@ class Scraper:
 
                 if wait_for_download('PointsTransactions.csv'):
                    self.move_ati('PointsTransactions.csv', save_dir)
+
+            except TimeoutException as e:
+                logger.error('Timed out. The page took too long to load.')
+                logger.error('Stacktrace:', e)
+
+    def move_mictsi(self, filename: str, to_directory: str) -> None:
+        """
+            Moves the Manila International Container Terminal Servirces, Inc. (MICTSI) data file to the
+            specific documents' directory.
+
+            Parameters:
+                filename (str): the name of the file.
+                to_directory (str): the name of the directory to which to move the file.
+        """
+
+        if not check_directory(path.join(DATA_DIR, to_directory)):
+            logger.error(f'An error occured on moving the {Color.colorize("MICTSI.CSV", Color.BOLD)} file.')
+            create_save_directory(to_directory)
+
+        src = path.join(DATA_DIR, filename)
+        dst = path.normpath(f'{DATA_DIR}/documents/{to_directory}/cache/mictsi.csv')
+
+        shutil.move(src, dst)
+        logger.info(f'Moved file: [{Color.colorize(filename, Color.CYAN)}] to directory: [{Color.colorize(to_directory, Color.CYAN)}].')
+
+    def download_mictsi(self, account: Account, dates: Dates) -> None:
+        """
+            Downloads the Manila International Container Terminal Servirces, Inc. (MICTSI) data from the InterCommerce website.
+            The data is downloaded in CSV format and saved in the
+            specified directory.
+
+            Parameters:
+                account (Account): username and password for the InterCommerce account.
+                dates (Dates): start and end date for the data to be downloaded.
+        """
+
+        url = 'https://ictsi.vbs.1-stop.biz'
+        save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+
+        with Driver() as (driver, wait):
+            try:
+                # Login to the VBS website.
+                driver.get(url)
+                logger.info(f'Logging in to {Color.colorize("Intercommerce", Color.BOLD)} account and downloading {Color.colorize("MICTSI", Color.BOLD)} data.')
+
+                # Wait for the page to load and then login.
+                wait.until(EC.all_of(
+                        EC.visibility_of_element_located((By.NAME, 'USERNAME')),
+                        EC.visibility_of_element_located((By.NAME, 'PASSWORD'))
+                    )
+                )
+                driver.find_element(By.ID, 'USERNAME').send_keys(account.username)
+                driver.find_element(By.ID, 'PASSWORD').send_keys(account.password.get_secret_value())
+                driver.find_element(By.ID, 'form1').submit()
+
+                # Wait for the page to load and then go to the terms and conditions page.
+                wait.until(EC.presence_of_element_located((By.ID, 'vbs_new_selected_facilityid')))
+                # Wait for the page to load and then go to the terms and conditions page.
+                driver.get('https://ictsi.vbs.1-stop.biz/Default.aspx?vbs_Facility_Changed=true&vbs_new_selected_FACILITYID=ICTSI')
+                wait.until(EC.element_to_be_clickable((By.ID, 'Accept'))).click()
+
+                # Wait for the page to load and then go to the transactions page.
+                wait.until(EC.presence_of_element_located((By.ID, 'NotifyMessages')))
+                driver.get('https://ictsi.vbs.1-stop.biz/PointsTransactions.aspx')
+
+                # Change the dates in the form.
+                # Date from.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATEFROM')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.start_date.day}/{dates.start_date.month}/{dates.start_date.year}')
+
+                # Date to.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATETO')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.end_date.day}/{dates.end_date.month}/{dates.end_date.year}')
+
+                # Request for the data from the database.
+                driver.find_element(By.ID, 'PointsTransactionsSearchForm___REFERENCE').click()
+                driver.find_element(By.ID, 'Search').click()
+
+                # We change the web driver wait timeout to 120 seconds
+                # because the data might take a while to load. This is the
+                # button for downloading the cvs file itself.
+                element = WebDriverWait(driver, 120).until(
+                    EC.element_to_be_clickable((By.ID, 'CSV'))
+                )
+                element.click()
+
+                if wait_for_download('PointsTransactions.csv'):
+                   self.move_mictsi('PointsTransactions.csv', save_dir)
 
             except TimeoutException as e:
                 logger.error('Timed out. The page took too long to load.')

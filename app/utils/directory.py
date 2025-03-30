@@ -28,18 +28,17 @@ def create_save_directory(directory_name: str) -> None:
     else:
         logger.warning(f"Directory: [{Color.colorize(directory_name, Color.CYAN)}] already exists.")
 
-def check_directory(directory_name: str) -> bool:
+def check_directory(dir: str) -> bool:
     """
         Checks if the directory exists.
 
         Parameters:
-            directory_name (str): the name of the directory.
+            dir (str): the name of the directory.
 
         Returns:
             bool: True if the directory exists, False otherwise.
     """
 
-    dir = path.join(DATA_DIR, directory_name)
     return path.exists(dir)
 
 
