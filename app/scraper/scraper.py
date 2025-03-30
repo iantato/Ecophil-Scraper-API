@@ -1,3 +1,5 @@
+import shutil
+from os import path
 from typing import Tuple
 
 from selenium.webdriver import Chrome, ChromeOptions
@@ -6,15 +8,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from app.config.logger import setup_logger
-from app.schemas.scraper import Account
-from app.config.config import WEBDRIVER_WAIT_TIMEOUT
 from app.utils.colors import Color
+from app.schemas.scraper import Account, Dates
+from app.config.logger import setup_logger
+from app.utils.directory import wait_for_download, check_directory, create_save_directory
+from app.config.config import WEBDRIVER_WAIT_TIMEOUT, DATA_DIR
 
 logger = setup_logger(__name__)
 
 class Driver:
-    def __enter__(self, wait = WEBDRIVER_WAIT_TIMEOUT['short']) -> Tuple[Chrome, WebDriverWait]:
+
+    def __init__(self, wait = WEBDRIVER_WAIT_TIMEOUT['short']) -> None:
+        self.wait_timeout = wait
+
+    def __enter__(self) -> Tuple[Chrome, WebDriverWait]:
         # Setup the Chrome options.
         options = ChromeOptions()
 
@@ -29,7 +36,7 @@ class Driver:
 
         options.add_experimental_option('prefs', {
             # Change the default download directory.
-            'download.default_directory': None,
+            'download.default_directory': DATA_DIR,
 
             # Disable the prompt for download.
             'download.prompt_for_download': False,
@@ -43,7 +50,7 @@ class Driver:
 
         # Setup the Chrome driver.
         self.driver = Chrome(options=options)
-        self.wait = WebDriverWait(self.driver, wait)
+        self.wait = WebDriverWait(self.driver, self.wait_timeout)
 
         return self.driver, self.wait
 
@@ -152,3 +159,96 @@ class Scraper:
             except TimeoutException:
                 logger.error('Timed out. The page took too long to load.')
                 return False
+
+    def move_ati(self, filename: str, to_directory: str) -> None:
+        """
+            Moves the file to the appropriate directory.
+
+            Parameters:
+                filename (str): the name of the file.
+                to_directory (str): the name of the directory to which to move the file.
+        """
+
+        if not check_directory(path.join(DATA_DIR, to_directory)):
+            logger.error(f'An error occured on moving the {Color.colorize("ATI.CSV", Color.BOLD)} file.')
+            create_save_directory(to_directory)
+
+        src = path.join(DATA_DIR, filename)
+        dst = path.normpath(f'{DATA_DIR}/documents/{to_directory}/cache/ati.csv')
+
+        shutil.move(src, dst)
+        logger.info(f'Moved file: [{Color.colorize(filename, Color.CYAN)}] to directory: [{Color.colorize(to_directory, Color.CYAN)}].')
+
+    def download_ati(self, account: Account, dates: Dates) -> None:
+        """
+            Downloads the ATI data from the VBS website.
+            The data is downloaded in CSV format and saved in the
+            specified directory.
+
+            Parameters:
+                account (Account): username and password for the VBS account.
+                dates (Dates): start and end date for the data to be downloaded.
+        """
+
+        url = 'https://ictsi.vbs.1-stop.biz'
+        save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+
+        with Driver() as (driver, wait):
+            try:
+                # Login to the VBS website.
+                driver.get(url)
+                logger.info(f'Logging in to {Color.colorize("Intercommerce", Color.BOLD)} account and downloading {"ATI", Color.BOLD} data.')
+                # Wait for the page to load and then login.
+                wait.until(EC.all_of(
+                        EC.visibility_of_element_located((By.ID, 'USERNAME')),
+                        EC.visibility_of_element_located((By.ID, 'PASSWORD'))
+                    )
+                )
+
+                driver.find_element(By.ID, 'USERNAME').send_keys(account.username)
+                driver.find_element(By.ID, 'PASSWORD').send_keys(account.password.get_secret_value())
+                driver.find_element(By.ID, 'form1').submit()
+
+                # Wait for the page to load and then go to the terms and conditions page.
+                wait.until(EC.presence_of_element_located((By.ID, 'vbs_new_selected_facilityid')))
+                # Accept the terms and conditions.
+                driver.get('https://atimnl.vbs.1-stop.biz/Default.aspx?vbs_Facility_Changed=true&vbs_new_selected_FACILITYID=ATIMNL')
+                wait.until(EC.element_to_be_clickable((By.ID, 'Accept'))).click()
+
+                # Wait for the page to load and then go to the transactions page.
+                wait.until(EC.presence_of_element_located((By.ID, 'NotifyMessages')))
+                driver.get('https://atimnl.vbs.1-stop.biz/PointsTransactions.aspx')
+
+                # Change the dates in the form.
+                # Date from.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATEFROM')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.start_date.day}/{dates.start_date.month}/{dates.start_date.year}')
+
+                # Date to.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATETO')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.end_date.day}/{dates.end_date.month}/{dates.end_date.year}')
+
+                # Request for the data from the database.
+                driver.find_element(By.ID, 'PointsTransactionsSearchForm___REFERENCE').click()
+                driver.find_element(By.ID, 'Search').click()
+
+                # We change the web driver wait timeout to 120 seconds
+                # because the data might take a while to load. This is the
+                # button for downloading the cvs file itself.
+                element = WebDriverWait(driver, 120).until(
+                    EC.element_to_be_clickable((By.ID, 'CSV'))
+                )
+                element.click()
+
+                if wait_for_download('PointsTransactions.csv'):
+                   self.move_ati('PointsTransactions.csv', save_dir)
+
+            except TimeoutException as e:
+                logger.error('Timed out. The page took too long to load.')
+                logger.error('Stacktrace:', e)

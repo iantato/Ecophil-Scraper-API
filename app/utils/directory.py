@@ -10,6 +10,24 @@ from app.utils.colors import Color
 
 logger = setup_logger(__name__)
 
+def create_save_directory(directory_name: str) -> None:
+    """
+        Creates a directory if it does not exist.
+
+        Parameters:
+            directory_name (str): the name of the directory.
+    """
+
+    dir = path.join(DATA_DIR, 'documents', directory_name)
+    cache = path.join(dir, 'cache')
+
+    if not path.exists(dir):
+        mkdir(dir)
+        mkdir(cache)
+        logger.info(f"Created directory: [{Color.colorize(directory_name, Color.CYAN)}] successfully.")
+    else:
+        logger.warning(f"Directory: [{Color.colorize(directory_name, Color.CYAN)}] already exists.")
+
 def check_directory(directory_name: str) -> bool:
     """
         Checks if the directory exists.
@@ -24,17 +42,6 @@ def check_directory(directory_name: str) -> bool:
     dir = path.join(DATA_DIR, directory_name)
     return path.exists(dir)
 
-def create_directory(directory_name: str) -> None:
-    """
-        Creates the directory to save in for the current session.
-
-        Parameters:
-            directory_name (str): the name of the directory.
-    """
-
-    dir = path.join(DATA_DIR, directory_name)
-    mkdir(dir)
-    mkdir(path.join(dir, 'sheets'))
 
 def remove_directory(directory_name: str) -> None:
     """
@@ -47,26 +54,6 @@ def remove_directory(directory_name: str) -> None:
     dir = path.join(DATA_DIR, directory_name)
     if path.exists(dir):
         remove(dir)
-
-def move_file(filename: str, from_directory: str, to_directory: str, new_filename: Optional[str] = None) -> None:
-    """
-        Moves the file to the appropriate directory.
-
-        Parameters:
-            filename (str): the name of the file.
-            from_directory (str): the name of the directory from which to move the file.
-            to_directory (str): the name of the directory to which to move the file.
-            new_filename (str): the new name of the file.
-    """
-
-    if not check_directory(path.join(DATA_DIR, to_directory)):
-        logger.error(f"Directory: [{Color.colorize(to_directory, Color.CYAN)}] does not exist.")
-        logger.info(f"A new directory will be created: [{Color.colorize(to_directory, Color.CYAN)}].")
-
-    from_directory = path.join(DATA_DIR, from_directory, filename)
-    to_directory = path.join(DATA_DIR, to_directory, new_filename or filename)
-    shutil.move(from_directory, to_directory)
-    logger.info(f"Moved file: [{Color.colorize(filename, Color.CYAN)}] to directory: [{Color.colorize(to_directory, Color.CYAN)}].")
 
 def wait_for_download(
     file_name: str,
