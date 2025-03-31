@@ -32,7 +32,7 @@ class Document(BaseModel):
     container_type: str
     quantity: str
 
-class Pandas(BaseModel):
+class DataFrameModel(BaseModel):
     reference_number: str
     document_number: str
     invoice_number: str
