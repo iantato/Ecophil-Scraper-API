@@ -346,3 +346,40 @@ class Scraper:
             except TimeoutException as e:
                 logger.error('Timed out. The page took too long to load.')
                 logger.error('Stacktrace:', e)
+
+    def scrape_documents(self, account: Account, dates: Dates) -> None:
+
+        url = 'https://www.intercommerce.com.ph/'
+        save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+
+        with Driver() as (driver, wait):
+            try:
+                # Login to the Intercommerce website.
+                driver.get(url)
+                logger.info(f'Logging in to {Color.colorize("Intercommerce", Color.BOLD)} account.')
+
+                wait.until(EC.all_of(
+                        EC.visibility_of_element_located((By.NAME, 'clientid')),
+                        EC.visibility_of_element_located((By.NAME, 'password'))
+                    )
+                )
+                driver.find_element(By.NAME, 'clientid').send_keys(account.username)
+                driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
+                driver.find_element(By.NAME, 'form1').submit()
+
+                wait.until(EC.visibility_of_all_elements_located(By.CLASS_NAME, 'toplink'))
+
+                # Start scraping the documents from the Intercommerce database.
+                current_date_of_scraper = dates.end_date
+                page_offset = 0
+
+                while current_date_of_scraper >= dates.start_date:
+                    for row_id in range(15, 25):
+                        row_xpath = f'/html/body/form/table/tbody/tr[9]/td[2]/table/tbody/tr/td/div/table/tbody/tr/td/table/tbody/tr[{row_id}]'
+
+
+            except TimeoutException as e:
+                pass
+
+            except NoSuchElementException as e:
+                pass
