@@ -1,14 +1,3 @@
-# def log_printer(log_type: str, message: Optional[str] = None, formatted_message: Optional[List[str]] = None) -> None:
-#     """
-#         Prints the message with the log type.
-
-#         Parameters:
-#             log_type (str): the type of log message.
-#             message (str): the message to be printed.
-#     """
-#     if message:
-#         print(f"{PRINT_LOG_COLORS[log_type]}{log_type}{PRINT_LOG_COLORS['CLEAR']}:     {message}")
-
 import logging
 from app.utils.colors import Color
 

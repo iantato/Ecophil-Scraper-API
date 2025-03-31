@@ -1,11 +1,10 @@
 import time
-import shutil
 from typing import Optional, List
 from os import path, mkdir, remove
 
 from app.config.logger import setup_logger
-from app.config.config import DATA_DIR
-from app.config.config import DRIVER_DOWNLOAD_TIMEOUT, DRIVER_DOWNLOAD_POLL_INTERVAL
+from app.config.constants import DATA_DIR
+from app.config.constants import DRIVER_DOWNLOAD_TIMEOUT, DRIVER_DOWNLOAD_POLL_INTERVAL
 from app.utils.colors import Color
 
 logger = setup_logger(__name__)

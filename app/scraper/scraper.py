@@ -12,7 +12,7 @@ from app.utils.colors import Color
 from app.schemas.scraper import Account, Dates
 from app.config.logger import setup_logger
 from app.utils.directory import wait_for_download, check_directory, create_save_directory
-from app.config.config import WEBDRIVER_WAIT_TIMEOUT, DATA_DIR
+from app.config.constants import WEBDRIVER_WAIT_TIMEOUT, DATA_DIR
 
 logger = setup_logger(__name__)
 
