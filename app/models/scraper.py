@@ -22,10 +22,28 @@ class Row(BaseModel):
     status: str
     document_declaration_type: str
     consignee: str
-    waybill: str = None
+    waybill: str
     number_of_containers: str
     document_number: str
     creation_date: datetime
+
+    @field_validator('reference_number')
+    @classmethod
+    def clean_reference_number(cls, reference_number: str) -> str:
+        return reference_number.replace('-', '').strip()
+
+    @classmethod
+    def from_array(cls, array: list):
+        return cls(
+            reference_number=array[0],
+            status=array[1],
+            document_declaration_type=array[2],
+            consignee=array[3],
+            waybill=array[4],
+            number_of_containers=array[5],
+            document_number=array[6],
+            creation_date=datetime.strptime(array[7], '%m/%d/%Y %I:%M:%S %p')
+        )
 
 class Document(BaseModel):
     invoice_number: str
