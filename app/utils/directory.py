@@ -40,6 +40,20 @@ def check_directory(dir: str) -> bool:
 
     return path.exists(dir)
 
+def check_file(file_name: str, directory_name: Optional[str] = '') -> bool:
+    """
+        Checks if the file exists.
+
+        Parameters:
+            file_name (str): the name of the file.
+            directory_name (str): the name of the directory.
+
+        Returns:
+            bool: True if the file exists, False otherwise.
+    """
+
+    dir = path.join(DATA_DIR, directory_name, file_name)
+    return path.exists(dir)
 
 def remove_directory(directory_name: str) -> None:
     """

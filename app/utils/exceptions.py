@@ -1,0 +1,18 @@
+"""Custom exceptions for the Ecophil Scraper API."""
+
+class EcophilBaseException(Exception):
+    """Base class for all Ecophil exceptions."""
+    pass
+
+# Scraper Exceptions.
+class ScraperException(EcophilBaseException):
+    """Exception raised for errors in the scraper."""
+    pass
+
+class LoginFailedException(ScraperException):
+    """Exception raised when login to the website fails."""
+    pass
+
+class LoadingFailedException(ScraperException):
+    """Exception raised when loading data fails."""
+    pass
