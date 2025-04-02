@@ -50,6 +50,11 @@ class Document(BaseModel):
     container_type: str
     quantity: str
 
+    @field_validator('quantity')
+    @classmethod
+    def add_label(cls, quantity: str) -> str:
+        return f'{quantity} PK - PACKAGE'
+
 class DataFrameModel(BaseModel):
     reference_number: str
     document_number: str
