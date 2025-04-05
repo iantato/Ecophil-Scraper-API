@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115.11",
     "polars>=1.26.0",
     "pydantic-settings>=2.8.1",
+    "pypdf2>=3.0.1",
     "selenium>=4.29.0",
     "uvicorn>=0.34.0",
 ]
