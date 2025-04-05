@@ -1,17 +1,17 @@
-from datetime import datetime, timedelta
-from pydantic import BaseModel, SecretStr, PastDate, ValidationInfo, field_validator
+from datetime import datetime, timedelta, date
+from pydantic import BaseModel, SecretStr, ValidationInfo, field_validator
 
 class Account(BaseModel):
     username: str
     password: SecretStr
 
 class Dates(BaseModel):
-    start_date: PastDate
-    end_date: PastDate
+    start_date: date
+    end_date: date
 
     @field_validator('end_date')
     @classmethod
-    def validate_date_range(cls, end_date: PastDate, values: ValidationInfo) -> datetime:
+    def validate_date_range(cls, end_date: date, values: ValidationInfo) -> datetime:
         start_date = values.data.get('start_date')
         if (start_date and end_date) and (end_date - start_date) > timedelta(weeks=1):
             raise ValueError('The date range must not exceed 1 week.')
@@ -25,7 +25,7 @@ class Row(BaseModel):
     waybill: str
     number_of_containers: str
     document_number: str
-    creation_date: datetime
+    creation_date: date
 
     @field_validator('reference_number')
     @classmethod
@@ -42,7 +42,7 @@ class Row(BaseModel):
             waybill=array[4],
             number_of_containers=array[5],
             document_number=array[6],
-            creation_date=datetime.strptime(array[7], '%m/%d/%Y %I:%M:%S %p')
+            creation_date=datetime.strptime(array[7], '%m/%d/%Y %I:%M:%S %p').date()
         )
 
 class Document(BaseModel):
@@ -52,8 +52,11 @@ class Document(BaseModel):
 
     @field_validator('quantity')
     @classmethod
-    def add_label(cls, quantity: str) -> str:
-        return f'{quantity} PK - PACKAGE'
+    def add_label(cls, quantity: str, values: ValidationInfo) -> str:
+        container_type = values.data.get('container_type')
+        if container_type == 'LCL':
+            return f'{quantity} PK - PACKAGE'
+        return quantity
 
 class DataFrameModel(BaseModel):
     reference_number: str

@@ -1,7 +1,9 @@
+import time
 import shutil
 from os import path
 from typing import Tuple
 
+import polars as pl
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -9,10 +11,22 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from app.utils.colors import Color
-from app.schemas.scraper import Account, Dates
+from app.models.scraper import Account, Dates
 from app.config.logger import setup_logger
-from app.utils.directory import wait_for_download, check_directory, create_save_directory
+from app.utils.directory import (
+        wait_for_download,
+        check_directory,
+        create_save_directory,
+        check_file
+    )
+from app.config.settings import Settings
 from app.config.constants import WEBDRIVER_WAIT_TIMEOUT, DATA_DIR
+from app.models.scraper import Row, Document
+from app.utils.exceptions import (
+        LoginFailedException,
+        LoadingFailedException,
+        InvalidDocumentException
+    )
 
 logger = setup_logger(__name__)
 
@@ -55,12 +69,32 @@ class Driver:
         return self.driver, self.wait
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self.driver.quit()
         if exc_type is not None:
+            self.driver.quit()
             logger.error(f'An error occurred: {exc_value}')
             logger.error(f'Traceback (most recent call last):\n {traceback}')
 
 class Scraper:
+
+    def _verify_vbs_login(self, driver: Chrome, wait: WebDriverWait) -> bool:
+        """
+            Verifies whether the login to the VBS website was successful
+            or not by checking if the login error message is present and
+            checking whether the login page is still present.
+
+            Parameters:
+                driver (Driver): the web driver.
+                wait (WebDriverWait): the web driver wait.
+
+            Returns:
+                bool: True if the login was successful, False otherwise.
+        """
+
+        try:
+            wait.until(EC.presence_of_element_located((By.ID, 'msgHolder')))
+            return False
+        except TimeoutException or NoSuchElementException:
+            return 'Login' not in driver.page_source
 
     def authenticate_vbs(self, account: Account) -> bool:
         """
@@ -91,25 +125,39 @@ class Scraper:
                 driver.find_element(By.ID, 'PASSWORD').send_keys(account.password.get_secret_value())
                 driver.find_element(By.ID, 'form1').submit()
 
-                # Check for login failure.
-                if 'Login' in driver.page_source:
-                    try:
-                        wait.until(EC.visibility_of_element_located((By.ID, 'msgHolder')))
-                        logger.error(f'Invalid {Color.colorize("VBS", Color.BOLD)} account. Please try again.')
-                        return False
-                    except TimeoutException:
-                        logger.info(f'Successfully logged in {Color.colorize("VBS", Color.BOLD)} account.')
-                        return True
-                    except NoSuchElementException:
-                        logger.info(f'Successfully logged in {Color.colorize("VBS", Color.BOLD)} account.')
-                        return True
-                else:
+                # Verify if the login is successful.
+                login_successful = self._verify_vbs_login(wait)
+                if login_successful:
                     logger.info(f'Successfully logged in {Color.colorize("VBS", Color.BOLD)} account.')
                     return True
 
+                # Raises LoginFailedException if the login is not successful.
+                raise LoginFailedException('Login failed. Please check your username and password.')
+
             except TimeoutException:
                 logger.error('Timed out. The page took too long to load.')
-                return False
+                raise LoadingFailedException('Timed out. The page took too long to load.')
+
+    def _verify_intercommerce_login(self, driver: Chrome, wait: WebDriverWait) -> bool:
+        """
+            Verifies whether the login to the InterCommerce website was successful
+            or not by checking if the login error message is present and
+            checking whether the login page is still present.
+
+            Parameters:
+                driver (Driver): the web driver.
+                wait (WebDriverWait): the web driver wait.
+
+            Returns:
+                bool: True if the login was successful, False otherwise.
+        """
+
+        try:
+            wait.until(EC.presence_of_element_located((By.NAME, 'frmCreate')))
+            return False
+        except TimeoutException or NoSuchElementException:
+            return 'Incorrect Password' not in driver.page_source
+
 
     def authenticate_intercommerce(self, account: Account) -> bool:
         """
@@ -140,25 +188,18 @@ class Scraper:
                 driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
                 driver.find_element(By.NAME, 'form1').submit()
 
-                # Check for login failure.
-                if 'Incorrect Password' in driver.page_source:
-                    try:
-                        wait.until(EC.visibility_of_element_located((By.NAME, 'frmCreate')))
-                        logger.error(f'Invalid {Color.colorize("InterCommerce", Color.BOLD)} account. Please try again.')
-                        return False
-                    except TimeoutException:
-                        logger.info(f'Successfully logged in {Color.colorize("InterCommerce", Color.BOLD)} account.')
-                        return True
-                    except NoSuchElementException:
-                        logger.info(f'Successfully logged in {Color.colorize("InterCommerce", Color.BOLD)} account.')
-                        return True
-                else:
+                # Verify if the login is successful.
+                login_successful = self._verify_intercommerce_login(driver, wait)
+                if login_successful:
                     logger.info(f'Successfully logged in {Color.colorize("InterCommerce", Color.BOLD)} account.')
                     return True
 
+                # Raises LoginFailedException if the login is not successful.
+                raise LoginFailedException('Login failed. Please check your username and password.')
+
             except TimeoutException:
                 logger.error('Timed out. The page took too long to load.')
-                return False
+                raise LoadingFailedException('Timed out. The page took too long to load.')
 
     def move_ati(self, filename: str, to_directory: str) -> None:
         """
@@ -191,8 +232,8 @@ class Scraper:
                 dates (Dates): start and end date for the data to be downloaded.
         """
 
-        url = 'https://ictsi.vbs.1-stop.biz'
         save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+        url = 'https://ictsi.vbs.1-stop.biz'
 
         with Driver() as (driver, wait):
             try:
@@ -240,7 +281,7 @@ class Scraper:
 
                 # We change the web driver wait timeout to 120 seconds
                 # because the data might take a while to load. This is the
-                # button for downloading the cvs file itself.
+                # button for downloading the csv file itself.
                 element = WebDriverWait(driver, 120).until(
                     EC.element_to_be_clickable((By.ID, 'CSV'))
                 )
@@ -284,8 +325,8 @@ class Scraper:
                 dates (Dates): start and end date for the data to be downloaded.
         """
 
-        url = 'https://ictsi.vbs.1-stop.biz'
         save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+        url = 'https://ictsi.vbs.1-stop.biz'
 
         with Driver() as (driver, wait):
             try:
@@ -343,14 +384,12 @@ class Scraper:
                 if wait_for_download('PointsTransactions.csv'):
                    self.move_mictsi('PointsTransactions.csv', save_dir)
 
-            except TimeoutException as e:
+            except TimeoutException:
                 logger.error('Timed out. The page took too long to load.')
-                logger.error('Stacktrace:', e)
 
-    def scrape_documents(self, account: Account, dates: Dates) -> None:
+    def crawl_database(self, account: Account, dates: Dates, branch: str) -> None:
 
         url = 'https://www.intercommerce.com.ph/'
-        save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
 
         with Driver() as (driver, wait):
             try:
@@ -366,20 +405,85 @@ class Scraper:
                 driver.find_element(By.NAME, 'clientid').send_keys(account.username)
                 driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
                 driver.find_element(By.NAME, 'form1').submit()
+                logger.info('Logged in successfully.')
 
-                wait.until(EC.visibility_of_all_elements_located(By.CLASS_NAME, 'toplink'))
+                # Wait for the page to load and then go to the data page.
+                wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, 'toplink')))
+                time.sleep(2) # ⚠️ This is a temporary fix. Our code is too fast hence. ⚠️
 
-                # Start scraping the documents from the Intercommerce database.
-                current_date_of_scraper = dates.end_date
+                # Start craping the documents from the Intercommerce database.
                 page_offset = 0
 
-                while current_date_of_scraper >= dates.start_date:
-                    for row_id in range(15, 25):
+                for row_id in range(15, 18):
+                    driver.get(Settings().INTERCOMMERCE_URLS[branch] + str(page_offset))
+                    try:
+                        print('test 2')
+                        # Get the row data from the table in the page.
                         row_xpath = f'/html/body/form/table/tbody/tr[9]/td[2]/table/tbody/tr/td/div/table/tbody/tr/td/table/tbody/tr[{row_id}]'
+                        row = wait.until(EC.presence_of_element_located((By.XPATH, row_xpath))).find_elements(By.XPATH, './*')
+                        row_data = Row.from_array(
+                            [child.text for child in row]
+                        )
 
+                        # Skip the document if it is not in the date range or if the status is not 'AG'.
+                        if (dates.end_date < row_data.creation_date < dates.start_date) or row_data.status != 'AG':
+                            raise InvalidDocumentException(f'{row_data.reference_number} document is unprocessable. It is invalid')
 
-            except TimeoutException as e:
+                        # Stop scraping if the current dates are out of range.
+                        if dates.end_date > row_data.creation_date:
+                            logger.info('Scraping stopped. The date is out of range.')
+                            return
+
+                        # Scrape the document in the current row.
+                        self.scrape_document(driver, wait, row_data)
+
+                    except InvalidDocumentException:
+                        logger.error(f'Skipped document [{Color.colorize(row_data.reference_number, Color.CYAN)}].')
+                        driver.get(Settings().INTERCOMMERCE_URLS[branch] + str(page_offset))
+                        continue
+
+            except TimeoutException:
+                logger.error('Timed out. The page took too long to load.')
+                raise LoadingFailedException('Timed out. The page took too long to load.')
+
+    def _get_release_table(self, wait: WebDriverWait) -> str:
+        table_xpath = '/html/body/form/table/tbody/tr[8]/td[2]'
+        try:
+            table = wait.until(EC.presence_of_element_located((By.XPATH, table_xpath))).find_elements(By.TAG_NAME, 'td')
+            data = [child.text for child in table]
+
+            if "Released" in data or "Transferred" in data:
+                return "Released"
+            elif "Approved" in data:
+                return "Approved"
+            else:
+                return None
+
+        except TimeoutException:
+            raise InvalidDocumentException('Timed out. There are no release table in the document.')
+
+    def scrape_document(self, driver: Chrome, wait: WebDriverWait, row_data: Row) -> None:
+
+        url = f'https://www.intercommerce.com.ph/WebCWS/cws_ip_step2PEZAEXPexpress.asp?ApplNo={row_data.reference_number}'
+        driver.get(url)
+        logger.info(f'Scraping document [{Color.colorize(row_data.reference_number, Color.CYAN)}].')
+
+        if 'The page cannot be displayed because an internal server error has occurred.' in driver.page_source:
+            logger.error(f'An error occurred while scraping the document [{Color.colorize(row_data.reference_number, Color.CYAN)}].')
+            raise InvalidDocumentException(f'{row_data.reference_number} document is unprocessable. It is invalid')
+
+        try:
+            document = Document(
+                invoice_number=wait.until(EC.presence_of_element_located((By.NAME, 'txtInvNo'))).get_attribute('value'),
+                container_type=wait.until(EC.presence_of_element_located((By.NAME, 'txtTotContType'))).get_attribute('value'),
+                quantity=wait.until(EC.presence_of_element_located((By.NAME, 'txtPackages'))).get_attribute('value')
+            )
+
+            status = self._get_release_table(driver, wait)
+            if not status and document.container_type == 'FCL':
                 pass
 
-            except NoSuchElementException as e:
-                pass
+
+        except TimeoutException or NoSuchElementException:
+            logger.error(f'An error occurred while scraping the document [{Color.colorize(row_data.reference_number, Color.CYAN)}].')
+            raise InvalidDocumentException(f'{row_data.reference_number} document is unprocessable. It is invalid')

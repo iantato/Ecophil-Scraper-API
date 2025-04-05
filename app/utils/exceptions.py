@@ -16,3 +16,7 @@ class LoginFailedException(ScraperException):
 class LoadingFailedException(ScraperException):
     """Exception raised when loading data fails."""
     pass
+
+class InvalidDocumentException(ScraperException):
+    """Exception raised when a document is skipped."""
+    pass
