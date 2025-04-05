@@ -387,6 +387,42 @@ class Scraper:
             except TimeoutException:
                 logger.error('Timed out. The page took too long to load.')
 
+    def _get_container_number_from_pdf(self, reference_no: str, driver: Chrome, filename: Optional[str]) -> str:
+        """
+            Extracts the container number from a PDF file.
+            The PDF file is downloaded from the InterCommerce website.
+
+            Parameters:
+                reference_no (str): The reference number of the document.
+                driver (Driver): The web driver.
+                filename (str): The name of the PDF file.
+
+            Returns:
+                str: The extracted container number.
+        """
+
+        url = f'https://www.intercommerce.com.ph/WebCWS/pdf/sadPEZAEXP.php?aplid={reference_no}'
+        driver.get(url)
+
+        try:
+            if wait_for_download('doc.pdf'):
+                 with open(f'{DATA_DIR}/{filename}', 'rb') as file:
+                    reader = PdfReader(file, strict=False)
+                    logger.info(f'Extracting container number from PDF for [{Color.colorize(reference_no, Color.CYAN)}].')
+                    texts = reader.pages[0].extract_text().replace('- Container No(s) -', '').split('\n')
+
+                    for text in texts:
+                        if 'Container No' in text:
+                            container_number = text.rsplit(' ', 1)[1].strip()
+                            logger.info(f'Container number extracted successfully for [{Color.colorize(reference_no, Color.CYAN)}].')
+                            return container_number
+
+            # If the PDF file is not downloaded, raise an exception.
+            raise InvalidDocumentException(f'{reference_no} document is unprocessable. It is invalid')
+
+        finally:
+            remove(f'{DATA_DIR}/{filename}')
+
     def crawl_database(self, account: Account, dates: Dates, branch: str) -> None:
 
         url = 'https://www.intercommerce.com.ph/'
