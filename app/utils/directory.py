@@ -67,6 +67,33 @@ def remove_directory(directory_name: str) -> None:
     if path.exists(dir):
         remove(dir)
 
+def move_document(
+        filename: str,
+        destination_directory: str,
+        source_directory: Optional[str] = '',
+        rename: Optional[str] = None
+    ) -> None:
+    """
+        Moves the data files to the specific
+        documents' directory.
+
+        Parameters:
+            file_name (str): the name of the file.
+            destination_directory (str): the name of the destination directory.
+            source_directory (str): the name of the source directory.
+            rename (str): the new name of the file.
+    """
+
+    src = path.join(DATA_DIR, source_directory, filename)
+    dst = path.normpath(f'{DATA_DIR}/documents/{destination_directory}/cache/{rename or filename}')
+
+    if not check_directory(dst):
+        logger.error(f'Directory: [{Color.colorize(destination_directory, Color.CYAN)}] does not exist.')
+        create_save_directory(destination_directory)
+
+    shutil.move(src, dst)
+    logger.info(f"Moved file: [{Color.colorize(filename, Color.CYAN)}] to [{Color.colorize(destination_directory, Color.CYAN)}] successfully.")
+
 def wait_for_download(
     file_name: str,
     directory_name: Optional[str] = '',
