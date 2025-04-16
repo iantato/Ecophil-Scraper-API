@@ -19,6 +19,9 @@ def get_date_from_container_number(container_number: str, filename: Optional[str
             filename (str): The name of the CSV file to read.
             directory (str): The directory where the CSV file is located.
 
+        Raises:
+            InvalidDocumentException: If the container number is not found in the CSV file.
+
         Returns:
             pl.Series: A Polars Series containing the event dates for the specified container number.
     '''
