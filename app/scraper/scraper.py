@@ -31,28 +31,27 @@ from app.utils.exceptions import (
 logger = setup_logger(__name__)
 
 class Driver:
-
-    def __init__(self, wait = WEBDRIVER_WAIT_TIMEOUT['short']) -> None:
+    def __init__(self, wait=WEBDRIVER_WAIT_TIMEOUT['short'], download_dir=DATA_DIR) -> None:
         self.wait_timeout = wait
+        self.download_dir = download_dir
 
     def __enter__(self) -> Tuple[Chrome, WebDriverWait]:
+
         # Setup the Chrome options.
         options = ChromeOptions()
 
-        # Enable the Chrome browser cloud management making it easier to download.
+        # Add headless mode option for background operation
+        # options.add_argument('--headless=new')  # Uncomment when ready
+
         options.add_argument('--enable-chrome-browser-cloud-management')
 
         # Disable the sandbox to prevent the browser from crashing.
         options.add_argument('--disable-sandbox')
-
-        # Makes the browser wait for the page to load completely.
+        options.add_argument('--disable-dev-shm-usage')
         options.page_load_strategy = 'normal'
 
         options.add_experimental_option('prefs', {
-            # Change the default download directory.
-            'download.default_directory': DATA_DIR,
-
-            # Disable the prompt for download.
+            'download.default_directory': self.download_dir,
             'download.prompt_for_download': False,
 
             # Enable the download directory upgrade.
@@ -69,10 +68,11 @@ class Driver:
         return self.driver, self.wait
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if exc_type is not None:
+        if hasattr(self, 'driver'):
             self.driver.quit()
-            logger.error(f'An error occurred: {exc_value}')
-            logger.error(f'Traceback (most recent call last):\n {traceback}')
+
+        if exc_type is not None:
+            logger.error(f'An error occured: {exc_value}')
 
 class Scraper:
 
