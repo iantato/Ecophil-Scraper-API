@@ -9,6 +9,7 @@ from app.config.logger import setup_logger
 logger = setup_logger(__name__)
 
 class Driver:
+    """Context manager for managing the Chrome WebDriver."""
 
     def __init__(self, wait=WEBDRIVER_WAIT_TIMEOUT['short'], download_dir=DATA_DIR) -> None:
         self.wait_timeout = wait
