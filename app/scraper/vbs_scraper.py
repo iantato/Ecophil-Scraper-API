@@ -30,6 +30,26 @@ class VBSScraper:
     def __init__(self):
         self.url = 'https://vbs.1-stop.biz'
 
+    def _verify_login(self, driver: Chrome, wait: WebDriverWait) -> bool:
+        """
+        Verify if the login was successful by checking for the presence of specific elements.
+        This method checks for the presence of an error message element that indicates a failed login.
+
+        If the error message is not found, it assumes the login was successful.
+
+        Parameters:
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+
+        Returns:
+            bool: True if login was successful, False otherwise.
+        """
+        try:
+            wait.until(EC.presence_of_element_located((By.ID, 'error-element-password')))
+            return False
+        except TimeoutException or NoSuchElementException:
+            return 'Login was unsuccessful' not in driver.page_source
+
     def authenticate(self, account: Account) -> bool:
         """
         Authenticate the user with the VBS system using the provided credentials.
@@ -71,26 +91,6 @@ class VBSScraper:
                 logger.error('Timed out. The VBS page took too long to load.')
                 raise LoadingFailedException('Timed out. The VBS page took too long to load.')
 
-    def _verify_login(self, driver: Chrome, wait: WebDriverWait) -> bool:
-        """
-        Verify if the login was successful by checking for the presence of specific elements.
-        This method checks for the presence of an error message element that indicates a failed login.
-
-        If the error message is not found, it assumes the login was successful.
-
-        Parameters:
-            driver (Chrome): The Selenium WebDriver instance.
-            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
-
-        Returns:
-            bool: True if login was successful, False otherwise.
-        """
-        try:
-            wait.until(EC.presence_of_element_located((By.ID, 'error-element-password')))
-            return False
-        except TimeoutException or NoSuchElementException:
-            return 'Login was unsuccessful' not in driver.page_source
-
     def _generate_save_directory(self, dates: Dates) -> str:
         """
         Generate a save directory based on the start and end dates provided.
@@ -120,7 +120,6 @@ class VBSScraper:
             wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
             company (str): The company name to be used in the URL.
         """
-
         # Go to the terms and conditions page.
         # We need to get rid of the 'https://' part of the URL to get the company
         # name hence we do the slicing [8:].
