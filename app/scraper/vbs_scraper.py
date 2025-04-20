@@ -1,5 +1,6 @@
 import shutil
 from os import path
+from typing import Optional
 
 from selenium.webdriver import Chrome
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,9 +8,10 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
+from app.utils.colors import Color
 from app.scraper.driver import Driver
 from app.config.logger import setup_logger
-from app.config.constants import DATA_DIR
+from app.config.constants import DATA_DIR, DOC_DIR
 from app.models.scraper import (
     Account,
     Dates
@@ -80,7 +82,7 @@ class VBSScraper:
                 driver.find_element(By.ID, 'password').send_keys(account.password.get_secret_value())
                 driver.find_element(By.TAG_NAME, 'form').submit()
 
-                login_successful = self.verify_login(driver, wait)
+                login_successful = self._verify_login(driver, wait)
                 if login_successful:
                     logger.info('Successfully logged in VBS account.')
                     return True
@@ -102,7 +104,6 @@ class VBSScraper:
         Returns:
             str: The formatted save directory name.
         """
-
         save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
 
         create_save_directory(save_dir)
@@ -123,11 +124,11 @@ class VBSScraper:
         # Go to the terms and conditions page.
         # We need to get rid of the 'https://' part of the URL to get the company
         # name hence we do the slicing [8:].
-        driver.get(f'https://{company.lower()}{self.url[8:]}/Default.aspx?vbs_Facility_Changed=true&vbs_new_selected_FACILITYID={company.upper()}')
+        driver.get(f'https://{company.lower()}.{self.url[8:]}/Landing.aspx?/Default.aspx?vbs_Facility_Changed=true&vbs_new_selected_FACILITYID={company.upper()}')
         wait.until(EC.element_to_be_clickable((By.ID, 'Accept'))).click()
 
         wait.until(EC.presence_of_element_located((By.ID, 'NotifyMessages')))
-        driver.get(f'https://{company.lower()}{self.url[8:]}/PointsTransactions.aspx')
+        driver.get(f'https://{company.lower()}.{self.url[8:]}/PointsTransactions.aspx')
 
     def _move_download_file(self, src_filename: str, dest_dir: str, dest_filename: str) -> None:
         """
@@ -139,13 +140,13 @@ class VBSScraper:
             dest_filename (str): The new name for the file in the destination directory.
         """
         src_path = path.join(DATA_DIR, src_filename)
-        dest_path = path.join(DATA_DIR, dest_dir, dest_filename)
+        dest_path = path.join(DOC_DIR, dest_dir, dest_filename)
 
         shutil.move(src_path, dest_path)
-        logger.info(f'File moved to {dest_path}')
+        logger.info(f'File moved to [{Color.colorize(dest_path, Color.CYAN)}]')
 
-    def download_data(self, driver: Chrome, wait: WebDriverWait, account: Account, dates: Dates,
-                      company: str, csv_filename: str) -> None:
+    def download_data(self, account: Account, dates: Dates, company: str,
+                      csv_filename: str, db_wait: Optional[int] = 120) -> None:
         """
         Download data from the VBS system using the provided account credentials and date range.
         This method uses the Selenium WebDriver to interact with the VBS system and download the data.
@@ -199,6 +200,11 @@ class VBSScraper:
                 # Request for the data from the database.
                 driver.find_element(By.ID, 'PointsTransactionsSearchForm___REFERENCE').click()
                 driver.find_element(By.ID, 'Search').click()
+
+                element = WebDriverWait(driver, db_wait).until(
+                    EC.element_to_be_clickable((By.ID, 'CSV'))
+                )
+                element.click()
 
                 if wait_for_download('PointsTransactions.csv'):
                     self._move_download_file('PointsTransactions.csv', save_dir, csv_filename)
