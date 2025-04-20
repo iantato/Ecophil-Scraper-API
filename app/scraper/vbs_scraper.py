@@ -84,6 +84,25 @@ class VBSScraper:
         except TimeoutException or NoSuchElementException:
             return 'Login was unsuccessful' not in driver.page_source
 
+    def _generate_save_directory(self, dates: Dates) -> str:
+        """
+        Generate a save directory based on the start and end dates provided.
+        The directory name is formatted as "MMM DD YYYY - MMM DD YYYY".
+
+        Parameters:
+            dates (Dates): The Dates object containing the start and end dates.
+
+        Returns:
+            str: The formatted save directory name.
+        """
+
+        save_dir = f'{dates.start_date.strftime("%b %d %Y")} - {dates.end_date.strftime("%b %d %Y")}'
+
+        create_save_directory(save_dir)
+
+        logger.info('Save directory initialized.')
+        return save_dir
+
     def _accept_terms_and_conditions(self, driver: Chrome, wait: WebDriverWait, company: str) -> None:
 
         # Go to the terms and conditions page.
