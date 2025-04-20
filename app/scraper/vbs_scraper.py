@@ -83,3 +83,65 @@ class VBSScraper:
             return False
         except TimeoutException or NoSuchElementException:
             return 'Login was unsuccessful' not in driver.page_source
+
+    def _accept_terms_and_conditions(self, driver: Chrome, wait: WebDriverWait, company: str) -> None:
+
+        # Go to the terms and conditions page.
+        # We need to get rid of the 'https://' part of the URL to get the company
+        # name hence we do the slicing [8:].
+        driver.get(f'https://{company.lower()}{self.url[8:]}/Default.aspx?vbs_Facility_Changed=true&vbs_new_selected_FACILITYID={company.upper()}')
+        wait.until(EC.element_to_be_clickable((By.ID, 'Accept'))).click()
+
+        wait.until(EC.presence_of_element_located((By.ID, 'NotifyMessages')))
+        driver.get(f'https://{company.lower()}{self.url[8:]}/PointsTransactions.aspx')
+
+    def _move_download_file(self, src_filename: str, dest_dir: str, dest_filename: str) -> None:
+        pass
+
+    def download_data(self, driver: Chrome, wait: WebDriverWait, account: Account, dates: Dates,
+                      company: str, csv_filename: str, save_dir: str) -> None:
+
+        with Driver() as (driver, wait):
+            try:
+                driver.get(self.url)
+
+                wait.until(EC.all_of(
+                        EC.visibility_of_element_located((By.ID, 'username')),
+                        EC.visibility_of_element_located((By.ID, 'password'))
+                    )
+                )
+
+                driver.find_element(By.ID, 'username').send_keys(account.username)
+                driver.find_element(By.ID, 'password').send_keys(account.password.get_secret_value())
+                driver.find_element(By.TAG_NAME, 'form').submit()
+
+                # Wait for the page to load and then go to the terms and conditions page.
+                wait.until(EC.presence_of_element_located((By.ID, 'vbs_new_selected_facilityid')))
+
+                # Accept the terms and conditions.
+                self._accept_terms_and_conditions(driver, wait, company)
+
+                # Change the dates in the form.
+                # DATE FROM.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATEFROM')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.start_date.day}/{dates.start_date.month}/{dates.start_date.year}')
+
+                # DATE TO.
+                element = wait.until(EC.element_to_be_clickable((By.ID, 'PointsTransactionsSearchForm___DATETO')))
+                driver.execute_script('arguments[0].removeAttribute("readonly")',
+                                      element)
+                element.clear()
+                element.send_keys(f'{dates.end_date.day}/{dates.end_date.month}/{dates.end_date.year}')
+
+                # Request for the data from the database.
+                driver.find_element(By.ID, 'PointsTransactionsSearchForm___REFERENCE').click()
+                driver.find_element(By.ID, 'Search').click()
+
+                if wait_for_download('PointsTransactions.csv'):
+                    pass
+
+            except TimeoutException or NoSuchElementException:
+                logger.error('Timed out. The page took too long to load.')
