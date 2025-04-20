@@ -87,7 +87,7 @@ class VBSScraper:
                     logger.info('Successfully logged in VBS account.')
                     return True
 
-                raise LoginFailedException('Login failed. Please check your credentials.')
+                raise LoginFailedException('Login to VBS failed. Please check your credentials.')
 
             except TimeoutException or NoSuchElementException:
                 logger.error('Timed out. The VBS page took too long to load.')
