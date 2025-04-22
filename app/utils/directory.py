@@ -1,4 +1,5 @@
 import time
+import shutil
 from typing import Optional, List
 from os import path, mkdir, remove
 
@@ -40,7 +41,7 @@ def check_directory(dir: str) -> bool:
 
     return path.exists(dir)
 
-def check_file(file_name: str, directory_name: Optional[str] = '') -> bool:
+def check_file(file_name: str, *directory_name: Optional[str]) -> bool:
     """
         Checks if the file exists.
 
@@ -52,7 +53,7 @@ def check_file(file_name: str, directory_name: Optional[str] = '') -> bool:
             bool: True if the file exists, False otherwise.
     """
 
-    dir = path.join(DATA_DIR, directory_name, file_name)
+    dir = path.join(DATA_DIR, *directory_name, file_name)
     return path.exists(dir)
 
 def remove_directory(directory_name: str) -> None:
@@ -119,9 +120,9 @@ def wait_for_download(
 
     while time.time() - start_time < timeout:
         if not any(file_name.endswith(ext) for ext in temp_extensions) and path.exists(file):
-            logger.info(f"Downloaded file: [{Color.colorize(file_name, Color.CYAN)}] successfully.")
+            logger.info(f"Downloaded file [{Color.colorize(file_name, Color.CYAN)}] successfully.")
             return True
         time.sleep(poll_interval)
 
-    logger.error(f"Timed out. Failed to download file: [{Color.colorize(file_name, Color.CYAN)}].")
+    logger.error(f"Timed out. Failed to download file [{Color.colorize(file_name, Color.CYAN)}].")
     return False
