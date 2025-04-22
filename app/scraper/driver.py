@@ -34,10 +34,10 @@ class Driver:
         })
 
         # Initialize the Chrome driver with the options.
-        driver = Chrome(options=options)
-        wait = WebDriverWait(driver, self.wait_timeout)
+        self.driver = Chrome(options=options)
+        self.wait = WebDriverWait(self.driver, self.wait_timeout)
 
-        return driver, wait
+        return self.driver, self.wait
 
     def __exit__(self, exc_type, exc_val, traceback) -> None:
         if hasattr(self, 'driver'):
