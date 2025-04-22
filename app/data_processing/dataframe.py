@@ -26,20 +26,6 @@ def load_csv_file(filename: str, save_dir: str) -> DataFrame:
     if check_file(filename, 'documents', save_dir, 'cache'):
         return pl.read_csv(path.join(DOC_DIR, save_dir, 'cache', filename))
 
-def remove_row_from_csv(filename: str, save_dir: str, reference_number: str) -> None:
-    """
-    Removes a row from a CSV file based on the reference number.
-
-    Parameters:
-        filename (str): The name of the CSV file to modify.
-        save_dir (str): The directory where the CSV file is located.
-        reference_number (str): The reference number of the row to remove.
-    """
-    if check_file(filename, 'documents', save_dir, 'cache'):
-        df = load_csv_file(filename, save_dir)
-        df = df.remove(pl.col('Reference Number') == reference_number)
-        df.write_csv(path.join(DOC_DIR, save_dir, 'cache', filename))
-
 def get_date_from_container_number(container_number: str, filename: Optional[str], directory: Optional[str]) -> Series:
     '''
     Retrieves the release date of a container from a CSV file.

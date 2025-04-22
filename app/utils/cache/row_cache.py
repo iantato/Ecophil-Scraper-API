@@ -45,6 +45,20 @@ def cache_row(row: List[Row], save_dir: str) -> None:
 
     logger.info(f'Row with reference number [{Color.colorize(row[0].reference_number, Color.CYAN)}] cached successfully.')
 
+def remove_row_from_csv(filename: str, save_dir: str, reference_number: str) -> None:
+    """
+    Removes a row from a CSV file based on the reference number.
+
+    Parameters:
+        filename (str): The name of the CSV file to modify.
+        save_dir (str): The directory where the CSV file is located.
+        reference_number (str): The reference number of the row to remove.
+    """
+    if check_file(filename, 'documents', save_dir, 'cache'):
+        df = load_csv_file(filename, save_dir)
+        df = df.remove(pl.col('reference_number') == reference_number)
+        df.write_csv(path.join(DOC_DIR, save_dir, 'cache', filename))
+
 def _check_reference_number(reference_number: str, save_dir: str) -> bool:
     """
     Check if the reference number exists in the cached rows.
