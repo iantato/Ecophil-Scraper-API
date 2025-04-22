@@ -20,3 +20,11 @@ class LoadingFailedException(ScraperException):
 class InvalidDocumentException(ScraperException):
     """Exception raised when a document is skipped."""
     pass
+
+class ScrapedDocumentException(ScraperException):
+    """Exception raised when a document is already scraped."""
+    pass
+
+class CachedException(ScraperException):
+    """Exception raised when a row is already cached."""
+    pass

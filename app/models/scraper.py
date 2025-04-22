@@ -23,14 +23,24 @@ class Row(BaseModel):
     document_declaration_type: str
     consignee: str
     waybill: str
-    number_of_containers: str
+    number_of_containers: int
     document_number: str
     creation_date: date
+
+    scraped: bool = False
 
     @field_validator('reference_number')
     @classmethod
     def clean_reference_number(cls, reference_number: str) -> str:
         return reference_number.replace('-', '').strip()
+
+    @field_validator('number_of_containers')
+    @classmethod
+    def convert_to_int(cls, number_of_containers: str) -> int:
+        try:
+            return int(number_of_containers)
+        except ValueError:
+            raise ValueError('Number of containers must be an integer.')
 
     @classmethod
     def from_array(cls, array: list):
