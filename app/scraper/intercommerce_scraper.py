@@ -10,7 +10,7 @@ from app.utils.colors import Color
 from app.scraper.driver import Driver
 from app.config.settings import Settings
 from app.config.logger import setup_logger
-from app.utils.cache.row_cache import cache_row
+from app.utils.cache.row_cache import cache_row, remove_row_from_csv
 from app.utils.directory import (
     create_save_directory
 )
@@ -182,6 +182,7 @@ class IntercommerceScraper:
 
                             if dates.start_date > row.creation_date:
                                 logger.info('Finished crawling the database. All rows have been cached.')
+                                remove_row_from_csv('rows.csv', save_dir, row.reference_number)
                                 return
 
                         except (InvalidDocumentException, CachedException):
