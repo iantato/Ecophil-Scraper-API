@@ -140,57 +140,58 @@ class IntercommerceScraper:
     def _get_container_number_from_pdf(self) -> None:
         pass
 
-    def crawl_database(self, account: Account, dates: Dates, branch: str) -> None:
+    def crawl_database(self, account: Account, dates: Dates, branch: str, driver: Chrome, wait: WebDriverWait) -> None:
+        """
+        Crawl the Intercommerce database to retrieve data based on the provided dates.
+        All the row datas are stored in a CSV file so that we can process all the documents
+        later on after the crawling is done.
+
+        Parameters:
+            account (Account): The account object containing the username and password.
+            dates (Dates): The Dates object containing the start and end dates.
+            branch (str): The branch to crawl the database from.
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+        """
 
         save_dir = self._generate_save_directory(dates)
 
-        with Driver() as (driver, wait):
-            try:
-                # Login to the Intercommerce system.
-                driver.get(self.url)
+        try:
+            # Authenticate the user with the Intercommerce system.
+            self._authenticate(account, driver, wait)
 
-                wait.until(EC.all_of(
-                        EC.visibility_of_element_located((By.NAME, 'clientid')),
-                        EC.visibility_of_element_located((By.NAME, 'password')),
-                    )
-                )
+            # Wait for the page to load and then go to the data page.
+            wait.until(EC.element_to_be_clickable((By.TAG_NAME, 'a')))
 
-                driver.find_element(By.NAME, 'clientid').send_keys(account.username)
-                driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
-                driver.find_element(By.NAME, 'form1').submit()
+            # Offset is used to traverse the database.
+            # The offset is incremented by 10 each time to get the next set of results.
+            offset = 0
 
-                # Wait for the page to load and then go to the data page.
-                wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, 'toplink')))
-                sleep(2) # ⚠️ This is a temporary fix. Our code is too fast hence. ⚠️ #
+            # Loop through each rows of the database. The <tr> tag is used to get the rows which
+            # starts from 15 to 25. The offset is used to get the next set of results.
+            while True:
 
-                # Offset is used to traverse the database.
-                # The offset is incremented by 10 each time to get the next set of results.
-                offset = 0
+                driver.get(Settings().INTERCOMMERCE_URLS[branch] + str(offset))
+                wait.until(EC.presence_of_element_located((By.NAME, 'txtClient')))
 
-                # Loop through each rows of the database. The <tr> tag is used to get the rows which
-                # starts from 15 to 25. The offset is used to get the next set of results.
-                while True:
+                for row_id in range(15, 25):
+                    try:
+                        row = self._get_row_data(row_id, save_dir, wait)
 
-                    driver.get(Settings().INTERCOMMERCE_URLS[branch] + str(offset))
+                        if dates.end_date < row.creation_date < dates.start_date or row.status != 'AG':
+                            raise InvalidDocumentException('The document is not valid.')
 
-                    for row_id in range(15, 25):
-                        try:
-                            row = self._get_row_data(row_id, wait, save_dir)
+                        if dates.start_date > row.creation_date:
+                            logger.info('Finished crawling the database. All rows have been cached.')
+                            remove_row_from_csv('rows.csv', save_dir, row.reference_number)
+                            return
 
-                            if dates.end_date < row.creation_date < dates.start_date or row.status != 'AG':
-                                raise InvalidDocumentException('The document is not valid.')
+                    except (InvalidDocumentException, CachedException):
+                        logger.warning(f'Invalid Document. Skipping document [{Color.colorize(row.reference_number, Color.CYAN)}].')
+                        continue
+                else:
+                    offset += 10
 
-                            if dates.start_date > row.creation_date:
-                                logger.info('Finished crawling the database. All rows have been cached.')
-                                remove_row_from_csv('rows.csv', save_dir, row.reference_number)
-                                return
-
-                        except (InvalidDocumentException, CachedException):
-                            logger.warning(f'Invalid Document. Skipping document [{Color.colorize(row.reference_number, Color.CYAN)}].')
-                            continue
-                    else:
-                        offset += 10
-
-            except TimeoutException:
-                logger.error('Timed out. The Intercommerce database page did not load.')
-                raise LoadingFailedException('Timed out. The Intercommerce database page did not load.')
+        except TimeoutException:
+            logger.error('Timed out. The Intercommerce database page did not load.')
+            raise LoadingFailedException('Timed out. The Intercommerce database page did not load.')
