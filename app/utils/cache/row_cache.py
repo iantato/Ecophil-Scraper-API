@@ -2,6 +2,7 @@ from os import path
 from typing import List
 
 import polars as pl
+from polars import Series
 
 from app.models.scraper import Row
 from app.utils.colors import Color
@@ -84,5 +85,22 @@ def _check_reference_number(reference_number: str, save_dir: str) -> bool:
     # Check if the query result is empty. Thus, the reference number does not exist.
     return not query.collect().is_empty()
 
-def check_scraped(reference_number: str, save_dir: str) -> bool:
-    pass
+def get_reference_numbers(filename: str, save_dir: str) -> Series:
+    """
+    Get the reference numbers from the cached rows.
+
+    Parameters:
+        filename (str): The name of the CSV file to read.
+        save_dir (str): The directory where the CSV file is located.
+
+    Returns:
+        Series[str]: A Series containing the reference numbers.
+    """
+    if check_file(filename, 'documents', save_dir, 'cache'):
+        df = load_csv_file(filename, save_dir)
+        return df.get_column('reference_number')
+
+def check_scraped(reference_number: str, filename: str, save_dir: str) -> bool:
+    if check_file(filename, 'documents', save_dir, 'cache'):
+        df = load_csv_file(filename, save_dir)
+        return df.filter(pl.col('reference_number') == reference_number).select('scraped').item()
