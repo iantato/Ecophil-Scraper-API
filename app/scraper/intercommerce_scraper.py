@@ -1,5 +1,3 @@
-from time import sleep
-
 from selenium.webdriver import Chrome
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -7,10 +5,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
 from app.utils.colors import Color
-from app.scraper.driver import Driver
 from app.config.settings import Settings
 from app.config.logger import setup_logger
-from app.utils.cache.row_cache import cache_row, remove_row_from_csv
+from app.utils.cache.row_cache import (
+    cache_row,
+    remove_row_from_csv,
+    get_reference_numbers,
+    check_scraped
+)
 from app.utils.directory import (
     create_save_directory
 )
@@ -51,7 +53,7 @@ class IntercommerceScraper:
         except TimeoutException or NoSuchElementException:
             return 'Incorrect Password' not in driver.page_source
 
-    def authenticate(self, account: Account) -> bool:
+    def _authenticate(self, account: Account, driver: Chrome, wait: WebDriverWait) -> None:
         """
         Authenticate the user with the Intercommerce system using the provided credentials.
         This method uses the Selenium WebDriver to interact with the Intercommerce login page.
@@ -68,32 +70,28 @@ class IntercommerceScraper:
             LoginFailedException: If the login was unsuccessful.
             LoadingFailedException: If the login page did not load within the specified time.
         """
-        with Driver() as (driver, wait):
-            try:
-                driver.get(self.url)
-                # Wait for the login page to load.
-                wait.until(EC.all_of(
-                        EC.visibility_of_element_located((By.NAME, 'clientid')),
-                        EC.visibility_of_element_located((By.NAME, 'password'))
-                    )
+        try:
+            driver.get(self.url)
+            # Wait for the login page to load.
+            wait.until(EC.all_of(
+                    EC.visibility_of_element_located((By.NAME, 'clientid')),
+                    EC.visibility_of_element_located((By.NAME, 'password'))
                 )
+            )
 
-                driver.find_element(By.NAME, 'clientid').send_keys(account.username)
-                driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
-                driver.find_element(By.NAME, 'form1').submit()
+            driver.find_element(By.NAME, 'clientid').send_keys(account.username)
+            driver.find_element(By.NAME, 'password').send_keys(account.password.get_secret_value())
+            driver.find_element(By.NAME, 'form1').submit()
 
-                # Verify if the login is successful.
-                login_successful = self._verify_login(driver, wait)
-                if login_successful:
-                    logger.info("Login was successful in Intercommerce Account.")
-                    return True
-
-                # Raises LoginFailedException if login was unsuccessful.
+            # Raises LoginFailedException if login was unsuccessful.
+            if not self._verify_login(driver, wait):
                 raise LoginFailedException("Login to Intercommerce failed. Please check your credentials.")
 
-            except TimeoutException or NoSuchElementException:
-                logger.error('Timed out. The Intercommerce login page did not load.')
-                raise LoadingFailedException('Timed out. The Intercommerce login page did not load.')
+            logger.info('Successfully logged in to Intercommerce account.')
+
+        except TimeoutException or NoSuchElementException:
+            logger.error('Timed out. The Intercommerce login page did not load.')
+            raise LoadingFailedException('Timed out. The Intercommerce login page did not load.')
 
     def _generate_save_directory(self, dates: Dates) -> str:
         """
@@ -113,7 +111,7 @@ class IntercommerceScraper:
         logger.info('Save directory initialized')
         return save_dir
 
-    def _get_row_data(self, row_id: int, wait: WebDriverWait, save_dir: str) -> Row:
+    def _get_row_data(self, row_id: int,save_dir: str, wait: WebDriverWait) -> Row:
         """
         Get the row data from the Intercommerce system.
         It stores the row data in a CSV file for later use.
@@ -134,13 +132,80 @@ class IntercommerceScraper:
 
         return row_data
 
-    def _get_release_table(self) -> None:
-        pass
+    def _crawl_rows(self, dates: Dates, branch: str, save_dir: str, driver: Chrome, wait: WebDriverWait) -> None:
+        """
+        Crawl the Intercommerce database to retrieve data based on the provided dates.
+        All the row datas are stored in a CSV file so that we can process all the documents
+        later on after the crawling is done.
 
-    def _get_container_number_from_pdf(self) -> None:
-        pass
+        Parameters:
+            dates (Dates): The Dates object containing the start and end dates.
+            branch (str): The branch to crawl the database from.
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+        """
+        offset = 0
 
-    def crawl_database(self, account: Account, dates: Dates, branch: str, driver: Chrome, wait: WebDriverWait) -> None:
+        while True:
+            self._load_page(branch, offset, driver, wait)
+
+            # Wait for the row to have a date past the end date.
+            if not self._process_rows(dates, save_dir, driver, wait):
+                logger.info('Finished crawling the database. All rows have been cached.')
+                break
+
+            offset += 10
+
+    def _load_page(self, branch: str, offset: int, driver: Chrome, wait: WebDriverWait) -> None:
+        """
+        Load the Intercommerce page with the specified branch and offset.
+
+        Parameters:
+            branch (str): The branch to load the page from.
+            offset (int): The offset to use for pagination.
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+        """
+        url = Settings().INTERCOMMERCE_URLS[branch] + str(offset)
+        driver.get(url)
+        wait.until(EC.presence_of_element_located((By.NAME, 'txtClient')))
+
+    def _process_rows(self, dates: Dates, save_dir: str, driver: Chrome, wait: WebDriverWait) -> bool:
+        """
+        Process the rows in the Intercommerce database to check if they are valid.
+        This method checks if the rows are valid based on the provided dates and status.
+        If a row is invalid, it raises an InvalidDocumentException. If the row is already cached,
+        it raises a CachedException.
+        If the row is valid, it caches the row data and returns True.
+
+        Parameters:
+            dates (Dates): The Dates object containing the start and end dates.
+            save_dir (str): The directory where the cached rows are stored.
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+
+        Returns:
+            bool: True if the row is valid, False if the end date is reached.
+        """
+        for row_id in range(15, 25):
+            try:
+                row = self._get_row_data(row_id, save_dir, wait)
+
+                if dates.end_date < row.creation_date < dates.start_date or row.status != 'AG':
+                    raise InvalidDocumentException('The document is not valid.')
+
+                if dates.start_date > row.creation_date:
+                    remove_row_from_csv('rows.csv', save_dir, row.reference_number)
+                    return False
+
+            except (InvalidDocumentException, CachedException):
+                logger.warning(f'Invalid Document. Skipping document [{Color.colorize(row.reference_number, Color.CYAN)}].')
+                continue
+
+        return True
+
+    def crawl_database(self, account: Account, dates: Dates, branch: str,
+                       driver: Chrome, wait: WebDriverWait) -> None:
         """
         Crawl the Intercommerce database to retrieve data based on the provided dates.
         All the row datas are stored in a CSV file so that we can process all the documents
@@ -160,37 +225,8 @@ class IntercommerceScraper:
             # Authenticate the user with the Intercommerce system.
             self._authenticate(account, driver, wait)
 
-            # Wait for the page to load and then go to the data page.
-            wait.until(EC.element_to_be_clickable((By.TAG_NAME, 'a')))
-
-            # Offset is used to traverse the database.
-            # The offset is incremented by 10 each time to get the next set of results.
-            offset = 0
-
-            # Loop through each rows of the database. The <tr> tag is used to get the rows which
-            # starts from 15 to 25. The offset is used to get the next set of results.
-            while True:
-
-                driver.get(Settings().INTERCOMMERCE_URLS[branch] + str(offset))
-                wait.until(EC.presence_of_element_located((By.NAME, 'txtClient')))
-
-                for row_id in range(15, 25):
-                    try:
-                        row = self._get_row_data(row_id, save_dir, wait)
-
-                        if dates.end_date < row.creation_date < dates.start_date or row.status != 'AG':
-                            raise InvalidDocumentException('The document is not valid.')
-
-                        if dates.start_date > row.creation_date:
-                            logger.info('Finished crawling the database. All rows have been cached.')
-                            remove_row_from_csv('rows.csv', save_dir, row.reference_number)
-                            return
-
-                    except (InvalidDocumentException, CachedException):
-                        logger.warning(f'Invalid Document. Skipping document [{Color.colorize(row.reference_number, Color.CYAN)}].')
-                        continue
-                else:
-                    offset += 10
+            # Crawl the Intercommerce database to retrieve data based on the provided dates.
+            self._crawl_rows(dates, branch, save_dir, driver, wait)
 
         except TimeoutException:
             logger.error('Timed out. The Intercommerce database page did not load.')
