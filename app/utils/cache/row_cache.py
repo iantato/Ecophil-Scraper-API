@@ -101,6 +101,18 @@ def get_reference_numbers(filename: str, save_dir: str) -> Series:
         return df.get_column('reference_number')
 
 def check_scraped(reference_number: str, filename: str, save_dir: str) -> bool:
+    """
+    Check if a row has been scraped based on the reference number.
+    The function reads the cached CSV file and filters the rows based on the reference number.
+
+    Parameters:
+        reference_number (str): The reference number to check.
+        filename (str): The name of the CSV file to read.
+        save_dir (str): The directory where the CSV file is located.
+
+    Returns:
+        bool: True if the row has been scraped, False otherwise.
+    """
     if check_file(filename, 'documents', save_dir, 'cache'):
         df = load_csv_file(filename, save_dir)
         return df.filter(pl.col('reference_number') == reference_number).select('scraped').item()
