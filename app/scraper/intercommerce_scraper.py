@@ -1,3 +1,6 @@
+from os import path
+
+from PyPDF2 import PdfReader
 from selenium.webdriver import Chrome
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -6,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from app.utils.colors import Color
 from app.config.settings import Settings
+from config.constants import DATA_DIR
 from app.config.logger import setup_logger
 from app.utils.cache.row_cache import (
     cache_row,
@@ -14,12 +18,14 @@ from app.utils.cache.row_cache import (
     check_scraped
 )
 from app.utils.directory import (
-    create_save_directory
+    create_save_directory,
+    wait_for_download
 )
 from app.models.scraper import (
     Account,
     Dates,
-    Row
+    Row,
+    Document
 )
 from app.utils.exceptions import (
     LoginFailedException,
@@ -111,7 +117,7 @@ class IntercommerceScraper:
         logger.info('Save directory initialized')
         return save_dir
 
-    def _get_row_data(self, row_id: int,save_dir: str, wait: WebDriverWait) -> Row:
+    def _get_row_data(self, row_id: int, wait: WebDriverWait) -> Row:
         """
         Get the row data from the Intercommerce system.
         It stores the row data in a CSV file for later use.
@@ -128,47 +134,8 @@ class IntercommerceScraper:
         row_xpath = f'/html/body/form/table/tbody/tr[9]/td[2]/table/tbody/tr/td/div/table/tbody/tr/td/table/tbody/tr[{row_id}]'
         row = wait.until(EC.presence_of_element_located((By.XPATH, row_xpath))).find_elements(By.XPATH, './*')
         row_data = Row.from_array([child.text for child in row])
-        cache_row([row_data], save_dir)
 
         return row_data
-
-    def _crawl_rows(self, dates: Dates, branch: str, save_dir: str, driver: Chrome, wait: WebDriverWait) -> None:
-        """
-        Crawl the Intercommerce database to retrieve data based on the provided dates.
-        All the row datas are stored in a CSV file so that we can process all the documents
-        later on after the crawling is done.
-
-        Parameters:
-            dates (Dates): The Dates object containing the start and end dates.
-            branch (str): The branch to crawl the database from.
-            driver (Chrome): The Selenium WebDriver instance.
-            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
-        """
-        offset = 0
-
-        while True:
-            self._load_page(branch, offset, driver, wait)
-
-            # Wait for the row to have a date past the end date.
-            if not self._process_rows(dates, save_dir, driver, wait):
-                logger.info('Finished crawling the database. All rows have been cached.')
-                break
-
-            offset += 10
-
-    def _load_page(self, branch: str, offset: int, driver: Chrome, wait: WebDriverWait) -> None:
-        """
-        Load the Intercommerce page with the specified branch and offset.
-
-        Parameters:
-            branch (str): The branch to load the page from.
-            offset (int): The offset to use for pagination.
-            driver (Chrome): The Selenium WebDriver instance.
-            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
-        """
-        url = Settings().INTERCOMMERCE_URLS[branch] + str(offset)
-        driver.get(url)
-        wait.until(EC.presence_of_element_located((By.NAME, 'txtClient')))
 
     def _process_rows(self, dates: Dates, save_dir: str, driver: Chrome, wait: WebDriverWait) -> bool:
         """
@@ -198,7 +165,10 @@ class IntercommerceScraper:
                     remove_row_from_csv('rows.csv', save_dir, row.reference_number)
                     return False
 
-            except (InvalidDocumentException, CachedException):
+                # Cache the row data if it is valid.
+                cache_row([row], save_dir)
+
+            except (InvalidDocumentException, CachedException, ValueError):
                 logger.warning(f'Invalid Document. Skipping document [{Color.colorize(row.reference_number, Color.CYAN)}].')
                 continue
 
@@ -226,8 +196,117 @@ class IntercommerceScraper:
             self._authenticate(account, driver, wait)
 
             # Crawl the Intercommerce database to retrieve data based on the provided dates.
-            self._crawl_rows(dates, branch, save_dir, driver, wait)
+            offset = 0
+
+            while True:
+
+                # Load the Intercommerce database page.
+                url = Settings().INTERCOMMERCE_URLS[branch] + str(offset)
+                driver.get(url)
+                wait.until(EC.presence_of_element_located((By.NAME, 'txtClient')))
+
+                # Wait for the row to have a date past the end date.
+                if not self._process_rows(dates, save_dir, driver, wait):
+                    logger.info('Finished crawling the database. All rows have been cached.')
+                    break
+
+                offset += 10
 
         except TimeoutException:
             logger.error('Timed out. The Intercommerce database page did not load.')
             raise LoadingFailedException('Timed out. The Intercommerce database page did not load.')
+
+    def _download_document_pdf(self, reference_number: str, driver: Chrome, wait: WebDriverWait) -> None:
+        url = f'{self.url}/WebCWS/pdf/sadPEZAEXP.php?aplid={reference_number}'
+        driver.get(url)
+
+        if 'The page cannot be displayed because an internal server error has occurred.' in driver.page_source:
+            raise InvalidDocumentException(f'{reference_number} document is unprocessable. It is invalid')
+
+    def _get_container_number_from_pdf(self, filename: str) -> str:
+        if wait_for_download(filename):
+            with open(path.join(DATA_DIR, filename), 'rb') as pdf:
+                reader = PdfReader(pdf, strict=False)
+                texts = reader.pages[0].extract_text().replace('- Container No(s) -', '').split('\n')
+
+                for text in texts:
+                    if 'Container No' in text:
+                        container_number = text.rsplit(' ', 1)[1].strip()
+                        return container_number
+
+    def _process_documents(self, save_dir: str, dates: Dates, driver: Chrome, wait: WebDriverWait) -> None:
+
+        for reference in get_reference_numbers('rows.csv', save_dir):
+            try:
+                url = f'{self.url}/WebCWS/cws_ip_step2PEZAEXPexpress.asp?ApplNo={reference}'
+                driver.get(url)
+
+                if 'The page cannot be displayed because an internal server error has occurred.' in driver.page_source:
+                    raise InvalidDocumentException(f'{reference} document is unprocessable. It is invalid')
+
+                scraped = check_scraped(reference, 'rows.csv', save_dir)
+                if scraped:
+                    raise CachedException(f'{reference} document is already cached.')
+
+                status = self._get_release_status(driver, wait)
+                document = self._get_document_data(driver, wait)
+                if status is None or status == 'Approved' and document.container_type == 'FCL':
+                    pass
+
+            except (InvalidDocumentException, CachedException):
+                logger.warning(f'Skipping... An error occurred while scraping the document [{Color.colorize(reference, Color.CYAN)}].')
+                remove_row_from_csv('rows.csv', save_dir, reference)
+                continue
+
+    def _get_release_status(self, driver: Chrome, wait: WebDriverWait) -> None:
+        """
+        Gets the release table from the document page.
+        The release table contains the status of the document.
+
+        Parameters:
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+
+        Returns:
+            str: The status of the document. It can be 'Released', 'Approved', or None.
+        """
+        table_xpath = '/html/body/form/table/tbody/tr[8]/td[2]'
+
+        try:
+            table = wait.until(EC.presence_of_element_located((By.XPATH, table_xpath))).find_elements(By.TAG_NAME, 'td')
+            data = [child.text for child in table]
+
+            if 'Released' in data or 'Transferred' in data:
+                return 'Released'
+            elif 'Approved' or 'Auto-Inspected' in data:
+                return 'Approved'
+            else:
+                return None
+
+        except TimeoutException or NoSuchElementException:
+            raise InvalidDocumentException('Timed out. There are no release table in the document.')
+
+    def _get_document_data(self, driver: Chrome, wait: WebDriverWait) -> Document:
+        """
+        Gets the document data from the document page.
+        The document data contains the invoice number, container type, and quantity.
+
+        Parameters:
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+
+        Returns:
+            Document: The document data containing the invoice number, container type, and quantity.
+        """
+        try:
+
+            document = Document(
+                invoice_number=wait.until(EC.presence_of_element_located((By.NAME, 'txtInvNo'))).get_attribute('value'),
+                container_type=wait.until(EC.presence_of_element_located((By.NAME, 'txtTotContType'))).get_attribute('value'),
+                quantity=wait.until(EC.presence_of_element_located((By.NAME, 'txtPackages'))).get_attribute('value')
+            )
+
+            return document
+
+        except TimeoutException or NoSuchElementException:
+            raise InvalidDocumentException('Timed out. There are no document data in the document.')
