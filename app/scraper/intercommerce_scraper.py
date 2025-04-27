@@ -1,5 +1,8 @@
 from os import path
+from typing import Optional
 
+import polars as pl
+from polars import Series
 from PyPDF2 import PdfReader
 from selenium.webdriver import Chrome
 from selenium.webdriver.support.ui import WebDriverWait
@@ -156,13 +159,12 @@ class IntercommerceScraper:
         """
         for row_id in range(15, 25):
             try:
-                row = self._get_row_data(row_id, save_dir, wait)
+                row = self._get_row_data(row_id, wait)
 
-                if dates.end_date < row.creation_date < dates.start_date or row.status != 'AG':
+                if dates.end_date < row.creation_date or row.status != 'AG':
                     raise InvalidDocumentException('The document is not valid.')
 
-                if dates.start_date > row.creation_date:
-                    remove_row_from_csv('rows.csv', save_dir, row.reference_number)
+                if dates.start_date > row.creaton_date:
                     return False
 
                 # Cache the row data if it is valid.
@@ -216,7 +218,53 @@ class IntercommerceScraper:
             logger.error('Timed out. The Intercommerce database page did not load.')
             raise LoadingFailedException('Timed out. The Intercommerce database page did not load.')
 
+    def _handle_fcl(self, row_data: Row, document_data: Document, filename: str, driver: Chrome, wait: WebDriverWait) -> None:
+        container_number = self._get_container_number_from_pdf(filename)
+
+    def _get_date_from_container_number(container_number: str, filename: Optional[str], directory: Optional[str]) -> Series:
+        '''
+        Retrieves the release date of a container from a CSV file.
+
+        Parameters:
+            container_number (str): The container number to search for.
+            filename (str): The name of the CSV file to read.
+            directory (str): The directory where the CSV file is located.
+
+        Raises:
+            InvalidDocumentException: If the container number is not found in the CSV file.
+
+        Returns:
+            pl.Series: A Polars Series containing the event dates for the specified container number.
+        '''
+
+        # Turns the 'Event Date' into a datetime object and then
+        # filters the dataframe to only include the specified container
+        #  number and the 'ARRIVE' event type.
+        q = (
+            pl.scan_csv(path.join(directory, filename))
+            .with_columns(pl.col('Event Date').str.to_datetime('%d-%b-%y %H:%M'))
+            .filter((pl.col('Container') == container_number) & (pl.col('Point Event') == 'ARRIVE'))
+            .collect()
+        )
+
+        if q.is_empty():
+            logger.warning(f"{Color.colorize(container_number, Color.BOLD)} not found in {filename}.")
+            raise InvalidDocumentException(f"Container number {container_number} not found in {filename}.")
+
+        return q.get_column('Event Date')
+
     def _download_document_pdf(self, reference_number: str, driver: Chrome, wait: WebDriverWait) -> None:
+        """
+        Downloads the document PDF from the Intercommerce system using the provided reference number.
+
+        Parameters:
+            reference_number (str): The reference number of the document to download.
+            driver (Chrome): The Selenium WebDriver instance.
+            wait (WebDriverWait): The WebDriverWait instance for waiting for elements.
+
+        Raises:
+            InvalidDocumentException: If the document is unprocessable or invalid.
+        """
         url = f'{self.url}/WebCWS/pdf/sadPEZAEXP.php?aplid={reference_number}'
         driver.get(url)
 
@@ -224,6 +272,16 @@ class IntercommerceScraper:
             raise InvalidDocumentException(f'{reference_number} document is unprocessable. It is invalid')
 
     def _get_container_number_from_pdf(self, filename: str) -> str:
+        """
+        Extracts the container number from the downloaded PDF file.
+
+        Parameters:
+            filename (str): The name of the PDF file to extract the container number from.
+
+        Returns:
+            str: The extracted container number.
+        """
+
         if wait_for_download(filename):
             with open(path.join(DATA_DIR, filename), 'rb') as pdf:
                 reader = PdfReader(pdf, strict=False)
@@ -250,7 +308,7 @@ class IntercommerceScraper:
 
                 status = self._get_release_status(driver, wait)
                 document = self._get_document_data(driver, wait)
-                if status is None or status == 'Approved' and document.container_type == 'FCL':
+                if status != 'Released' and document.container_type == 'FCL':
                     pass
 
             except (InvalidDocumentException, CachedException):
